@@ -4,7 +4,7 @@ import pandas as pd
 # Load dataset
 df = pd.read_csv('TCS.csv')
 
-# Filter for TCS only
+# Filter for TCS
 tcs_data = df[df['Symbol'] == 'TCS'].copy()
 
 # Convert 'Date' to datetime and sort
