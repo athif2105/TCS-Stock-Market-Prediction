@@ -1,1 +1,142 @@
-# TCS-Stock-Market-Prediction
+### **Load & Filter Data for TCS and Reliance**
+import pandas as pd
+
+# Load dataset
+df = pd.read_csv('TCS.csv')
+
+# Filter for TCS only
+tcs_data = df[df['Symbol'] == 'TCS'].copy()
+
+# Convert 'Date' to datetime and sort
+tcs_data['Date'] = pd.to_datetime(tcs_data['Date'])
+tcs_data.sort_values('Date', inplace=True)
+tcs_data.reset_index(drop=True, inplace=True)
+
+# Calculate moving averages
+tcs_data['MA20'] = tcs_data['Close'].rolling(window=20).mean()
+tcs_data['MA50'] = tcs_data['Close'].rolling(window=50).mean()
+
+# Drop rows with NaN values caused by moving averages
+tcs_data = tcs_data.dropna().reset_index(drop=True)
+
+print(tcs_data.head())
+###**Plot Closing Prices & Volumes for Both Stocks**
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(15,6))
+for stock in stocks:
+    plt.plot(data[stock]['Date'], data[stock]['Close'], label=f'{stock} Close Price')
+plt.title('Closing Prices Over Time')
+plt.xlabel('Date')
+plt.ylabel('Price')
+plt.legend()
+plt.show()
+
+plt.figure(figsize=(15,6))
+for stock in stocks:
+    plt.plot(data[stock]['Date'], data[stock]['Volume'], label=f'{stock} Volume')
+plt.title('Trading Volume Over Time')
+plt.xlabel('Date')
+plt.ylabel('Volume')
+plt.legend()
+plt.show()
+###**Moving Averages and Plot for TCS**
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(15,6))
+plt.plot(tcs_data['Date'], tcs_data['Close'], label='Close Price')
+plt.plot(tcs_data['Date'], tcs_data['MA20'], label='20-Day MA')
+plt.plot(tcs_data['Date'], tcs_data['MA50'], label='50-Day MA')
+plt.title('TCS Close Price with Moving Averages')
+plt.xlabel('Date')
+plt.ylabel('Price')
+plt.legend()
+plt.show()
+###**Prepare Data for LSTM Model**
+import numpy as np
+from sklearn.preprocessing import MinMaxScaler
+
+def prepare_lstm_data(stock_df, time_step=60):
+    close_prices = stock_df['Close'].values.reshape(-1,1)
+    scaler = MinMaxScaler(feature_range=(0,1))
+    scaled_data = scaler.fit_transform(close_prices)
+
+    X, Y = [], []
+    for i in range(len(scaled_data)-time_step-1):
+        X.append(scaled_data[i:i+time_step, 0])
+        Y.append(scaled_data[i + time_step, 0])
+
+    X = np.array(X)
+    Y = np.array(Y)
+    X = X.reshape(X.shape[0], X.shape[1], 1)
+    return X, Y, scaler
+
+# Test function on TCS
+X_tcs, Y_tcs, scaler_tcs = prepare_lstm_data(data['TCS'])
+print(f"TCS LSTM data shapes: X={X_tcs.shape}, Y={Y_tcs.shape}")
+###**Build and Train LSTM Model**
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, LSTM, Dropout
+
+def build_train_lstm(X_train, Y_train, epochs=7):
+    model = Sequential()
+    model.add(LSTM(50, return_sequences=True, input_shape=(X_train.shape[1],1)))
+    model.add(Dropout(0.2))
+    model.add(LSTM(50, return_sequences=False))
+    model.add(Dropout(0.2))
+    model.add(Dense(25))
+    model.add(Dense(1))
+    model.compile(optimizer='adam', loss='mean_squared_error')
+    model.fit(X_train, Y_train, epochs=epochs, batch_size=32, verbose=1)
+    return model
+
+# Prepare train/test split for TCS
+train_size = int(len(X_tcs)*0.8)
+X_train_tcs, X_test_tcs = X_tcs[:train_size], X_tcs[train_size:]
+Y_train_tcs, Y_test_tcs = Y_tcs[:train_size], Y_tcs[train_size:]
+
+print("Training LSTM model for TCS")
+model_tcs = build_train_lstm(X_train_tcs, Y_train_tcs)
+###**Predict and Plot Actual vs Predicted for TCS**
+# Predict on test data
+predictions_tcs = model_tcs.predict(X_test_tcs)
+predictions_tcs = scaler_tcs.inverse_transform(predictions_tcs)
+Y_test_tcs_actual = scaler_tcs.inverse_transform(Y_test_tcs.reshape(-1,1))
+
+import matplotlib.dates as mdates
+
+plt.figure(figsize=(12,6))
+plt.plot(data['TCS']['Date'][-len(Y_test_tcs_actual):], Y_test_tcs_actual, label='Actual')
+plt.plot(data['TCS']['Date'][-len(predictions_tcs):], predictions_tcs, label='Predicted')
+plt.title('TCS Actual vs Predicted Closing Price')
+plt.xlabel('Date')
+plt.ylabel('Price')
+plt.legend()
+plt.gca().xaxis.set_major_locator(mdates.MonthLocator(interval=3))
+plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
+plt.xticks(rotation=45)
+plt.show()
+###**Correlation Heatmap of TCS Features**
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(8,6))
+cols_to_corr = ['Open','High','Low','Close','Volume','MA20','MA50']
+
+sns.heatmap(tcs_data[cols_to_corr].corr(), annot=True, cmap='coolwarm')
+plt.title('Correlation Heatmap of TCS Stock Features')
+plt.show()
+###**Candlestick Chart Using Plotly**
+import plotly.graph_objects as go
+
+fig = go.Figure(data=[go.Candlestick(
+    x=tcs_data['Date'],
+    open=tcs_data['Open'],
+    high=tcs_data['High'],
+    low=tcs_data['Low'],
+    close=tcs_data['Close'],
+    name='TCS'
+)])
+
+fig.update_layout(title='TCS Candlestick Chart', xaxis_title='Date', yaxis_title='Price')
+fig.show()
